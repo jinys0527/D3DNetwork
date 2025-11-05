@@ -1,0 +1,5 @@
+﻿[*.fx]
+charset = utf-8
+
+[*.hlsl]
+charset = utf-8
