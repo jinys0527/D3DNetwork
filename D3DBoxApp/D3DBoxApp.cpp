@@ -47,6 +47,52 @@ struct CBVS
     Matrix gViewProj;
 };
 
+struct Object
+{
+    Matrix World;
+    int x = -1;
+    int y = -1;
+
+    void SetPos(int x, int y)
+    {
+        x = x;
+        y = y;
+    }
+    std::pair<int, int> GetPos()
+    {
+        return std::make_pair(x, y);
+    }
+};
+
+struct Cell
+{
+    Object* obj;
+    bool isEmpty;
+};
+
+struct Grid
+{
+	float                            m_CellSize = 1.0f;
+	int                              m_HalfCells = 20;
+
+	std::vector<std::vector<Cell>>   m_GridMap;
+
+    void Init(int halfCells, float cellSize) 
+    { 
+        m_HalfCells = halfCells;
+        m_CellSize = cellSize;
+        m_GridMap = std::vector(halfCells * 2, std::vector<Cell>(halfCells * 2, Cell{ nullptr, true }));
+    }
+
+    void SetObject(int x, int y, Object* obj);
+    void RemoveObject(int x, int y);
+
+    bool IsEmpty(int x, int y)
+    {
+        return m_GridMap[y][x].isEmpty;
+    }
+};
+
 struct App
 {
     // DX Core
@@ -95,8 +141,8 @@ struct App
     UINT                             m_BoxIndexCount = 0;
 
     // Transform
-    Matrix                           m_BoxWorld = Matrix::CreateTranslation(0, -1000, 0);
-    std::vector<Matrix>              m_GreenBoxWorlds;
+    Object                           m_Box;
+    std::vector<Object>              m_GreenBoxs;
 
     // Camera
     Matrix                           m_View;
@@ -117,8 +163,7 @@ struct App
     HWND                             m_hWnd = nullptr;
     UINT                             m_Width = 1280;
     UINT                             m_Height = 720;
-    float                            m_CellSize = 1.0f;
-    int                              m_HalfCells = 20;
+    Grid                             m_Grid;
 
     bool Init(HWND hWnd)
     {
@@ -205,6 +250,10 @@ struct App
         LoadBoxTexture();
         LoadGreenBoxTexture();
         LoadSkyTexture();
+
+        m_Grid.Init(20, 1.0f);
+
+        m_Box.World = Matrix::CreateTranslation(0, -1000, 0);
 
         CreateSkyRenderStates();
 
@@ -443,8 +492,8 @@ struct App
 
     void CreateGridVB()
     {
-        const int   N = m_HalfCells;
-        const float s = m_CellSize;
+        const int   N = m_Grid.m_HalfCells;
+        const float s = m_Grid.m_CellSize;
         const float half = N * s;
 
         std::vector<VertexPC> v;
@@ -592,7 +641,7 @@ struct App
         m_Context->PSSetShaderResources(0, 1, m_TexSRV.GetAddressOf());
         m_Context->PSSetSamplers(0, 1, m_Sampler.GetAddressOf());
         
-        MapAndSetCB(m_BoxWorld, m_View * m_Proj);
+        MapAndSetCB(m_Box.World, m_View * m_Proj);
         
         m_Context->DrawIndexed(m_BoxIndexCount, 0, 0);
 
@@ -611,9 +660,9 @@ struct App
 		m_Context->PSSetShaderResources(0, 1, m_GreenTexSRV.GetAddressOf());
 		m_Context->PSSetSamplers(0, 1, m_Sampler.GetAddressOf());
 
-        for (auto& greenBox : m_GreenBoxWorlds)
+        for (auto& greenBox : m_GreenBoxs)
         {
-			MapAndSetCB(greenBox, m_View * m_Proj);
+			MapAndSetCB(greenBox.World, m_View * m_Proj);
 
 			m_Context->DrawIndexed(m_BoxIndexCount, 0, 0);
         }
@@ -728,11 +777,11 @@ struct App
 
     Vector3 SnapToCellCenter(const Vector3& p)
     {
-        float s = m_CellSize;
+        float s = m_Grid.m_CellSize;
         float cx = floorf(p.x / s) * s + s * 0.5f;
         float cz = floorf(p.z / s) * s + s * 0.5f;
 
-        float half = m_HalfCells * s;
+        float half = m_Grid.m_HalfCells * s;
         cx = std::clamp(cx, -half + s * 0.5f, half - s * 0.5f);
         cz = std::clamp(cz, -half + s * 0.5f, half - s * 0.5f);
         return { cx, 0.0f, cz };
@@ -742,12 +791,29 @@ struct App
     {
         Vector3 ro, rd; ScreenRay(mx, my, ro, rd);
         Vector3 hit;
+        
         if (RayHitGround(ro, rd, hit))
         {
+            int x; int y;
+            float half = m_Grid.m_HalfCells * m_Grid.m_CellSize;
+            x = int((hit.x + half) / m_Grid.m_CellSize);
+            y = int((hit.z + half) / m_Grid.m_CellSize);
+
+            if (!m_Grid.IsEmpty(x, y))
+                return;
+            
+            if(m_Box.x!=-1 && m_Box.y!=-1)
+                m_Grid.RemoveObject(m_Box.x, m_Box.y);
+
             Vector3 c = SnapToCellCenter(hit);
-            Matrix S = Matrix::CreateScale(m_CellSize, 1.0f, m_CellSize);
+            Matrix S = Matrix::CreateScale(m_Grid.m_CellSize, 1.0f, m_Grid.m_CellSize);
             Matrix T = Matrix::CreateTranslation(c);
-            m_BoxWorld = S * T;
+            m_Box.x = x;
+            m_Box.y = y;
+            
+            m_Grid.SetObject(x, y, &m_Box);
+
+            m_Box.World = S * T;
         }
     }
 
@@ -757,10 +823,23 @@ struct App
         Vector3 hit;
         if (RayHitGround(ro, rd, hit))
         {
+			int x; int y;
+			float half = m_Grid.m_HalfCells * m_Grid.m_CellSize;
+			x = int((hit.x + half) / m_Grid.m_CellSize);
+			y = int((hit.z + half) / m_Grid.m_CellSize);
+
+			if (!m_Grid.IsEmpty(x, y))
+				return;
+
 			Vector3 c = SnapToCellCenter(hit);
-			Matrix S = Matrix::CreateScale(m_CellSize, 1.0f, m_CellSize);
+			Matrix S = Matrix::CreateScale(m_Grid.m_CellSize, 1.0f, m_Grid.m_CellSize);
             Matrix T = Matrix::CreateTranslation(c);
-            m_GreenBoxWorlds.push_back(S * T);
+            Object obj;
+            obj.World = S * T;
+
+            m_GreenBoxs.push_back(obj);
+
+            m_Grid.SetObject(x, y, &m_GreenBoxs.back());
         }
     }
 
@@ -939,4 +1018,16 @@ int WINAPI wWinMain(
         }
     }
     return 0;
+}
+
+void Grid::SetObject(int x, int y, Object* obj)
+{
+    m_GridMap[y][x].obj = obj;
+    m_GridMap[y][x].isEmpty = false;
+}
+
+void Grid::RemoveObject(int x, int y)
+{
+    m_GridMap[y][x].obj = nullptr;
+    m_GridMap[y][x].isEmpty = true;
 }
