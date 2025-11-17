@@ -78,33 +78,34 @@ struct Object
     }
 
     void Update(float deltaTime)
-    { }
+    {
+    }
 
     void BoxUpdate(float deltaTime)
-	{
+    {
         static float time = 0.0f;
 
         m_Pos = World.Translation();
-        if(World != Dest && !AStar)
-		{
+        if (World != Dest && !AStar)
+        {
             isAnimEnd = false;
-			time += deltaTime;
+            time += deltaTime;
 
-			Vector3 p1 = Start.Translation(); // 혹은 ExtractTranslation(World1)
-			Vector3 p2 = Dest.Translation();
-			float dist = Vector3::Distance(p1, p2);
+            Vector3 p1 = Start.Translation(); // 혹은 ExtractTranslation(World1)
+            Vector3 p2 = Dest.Translation();
+            float dist = Vector3::Distance(p1, p2);
 
             const float speed = 10.0f;
 
-			float t = std::min(time / (dist / speed), 1.0f); // 1초 동안 0~1로 보간
-			World = Matrix::Lerp(Start, Dest, t);
+            float t = std::min(time / (dist / speed), 1.0f); // 1초 동안 0~1로 보간
+            World = Matrix::Lerp(Start, Dest, t);
 
             if (t >= 1.0f)
-			{
-				time = 0.0f; // 다음 이동을 위해 초기화
+            {
+                time = 0.0f; // 다음 이동을 위해 초기화
                 isAnimEnd = true;
             }
-		}
+        }
         else if (!m_Path.empty())
         {
             isAnimEnd = false;
@@ -121,15 +122,15 @@ struct Object
             float t = std::min(time / (dist / speed), 1.0f);
             World = Matrix::Lerp(Start, Dest, t);
 
-			if (t >= 1.0f)
-			{
-            	time = 0.0f; // 다음 이동을 위해 초기화
-				isAnimEnd = true;
+            if (t >= 1.0f)
+            {
+                time = 0.0f; // 다음 이동을 위해 초기화
+                isAnimEnd = true;
                 Start = World;
                 m_Path.erase(m_Path.begin());
-			}
+            }
         }
-	}
+    }
 };
 
 
@@ -149,13 +150,13 @@ struct Cell
 
 struct Grid
 {
-	float                            m_CellSize = 1.0f;
-	int                              m_HalfCells = 20;
+    float                            m_CellSize = 1.0f;
+    int                              m_HalfCells = 20;
 
-	std::vector<std::vector<Cell>>   m_GridMap;
+    std::vector<std::vector<Cell>>   m_GridMap;
 
-    void Init(int halfCells, float cellSize) 
-    { 
+    void Init(int halfCells, float cellSize)
+    {
         m_HalfCells = halfCells;
         m_CellSize = cellSize;
         m_GridMap = std::vector(halfCells * 2, std::vector<Cell>(halfCells * 2, Cell{ nullptr, true }));
@@ -180,7 +181,7 @@ struct Grid
         return m_GridMap[z][x].m_Type;
     }
 
-	
+
 };
 
 struct App
@@ -196,13 +197,13 @@ struct App
     // Shaders / Pipeline
     ComPtr<ID3D11VertexShader>       m_VSColor; // Grid: Color shader
     ComPtr<ID3D11PixelShader>        m_PSColor;
-    
+
     ComPtr<ID3D11VertexShader>       m_VSTex;
     ComPtr<ID3D11PixelShader>        m_PSTex;
 
     ComPtr<ID3D11InputLayout>        m_InputLayoutColor;
     ComPtr<ID3D11InputLayout>        m_InputLayoutTex;
-    
+
     ComPtr<ID3D11Buffer>             m_CBVS;
 
     // Skybox
@@ -257,17 +258,17 @@ struct App
 
     GameTimer                        m_GameTimer;
 
-	bool WorldToGrid(const Vector3& pos, int& x, int& z)
-	{
-		float cellSize = m_Grid.m_CellSize;
-		float half = m_Grid.m_HalfCells * cellSize;
+    bool WorldToGrid(const Vector3& pos, int& x, int& z)
+    {
+        float cellSize = m_Grid.m_CellSize;
+        float half = m_Grid.m_HalfCells * cellSize;
 
-		x = int((pos.x + half) / cellSize);
-		z = int((pos.z + half) / cellSize);
+        x = int((pos.x + half) / cellSize);
+        z = int((pos.z + half) / cellSize);
 
-		return (x >= 0 && x < half * 2 &&
-			z >= 0 && z < half * 2);
-	}
+        return (x >= 0 && x < half * 2 &&
+            z >= 0 && z < half * 2);
+    }
 
     Vector3 GridToWorld(int cx, int cz)
     {
@@ -286,111 +287,111 @@ struct App
         if (!WorldToGrid(m_Box.m_Pos, startX, startZ)) return;
         if (!WorldToGrid(dest, goalX, goalZ)) return;
 
-        int N = m_Grid.m_HalfCells * 2 + 1;
+        int N = m_Grid.m_HalfCells * 2;
         auto inBounds = [&](int x, int z) {return x >= 0 && z >= 0 && x < N && z < N; };
-		auto heuristic = [&](int x1, int z1, int x2, int z2)
-			{
-				return float(abs(x1 - x2) + abs(z1 - z2)); // 맨해튼
-			};
+        auto heuristic = [&](int x1, int z1, int x2, int z2)
+            {
+                return float(abs(x1 - x2) + abs(z1 - z2)); // 맨해튼
+            };
 
-		const float INF = 1e9f;
-		std::vector<std::vector<float>> g(N, std::vector<float>(N, INF));
-		std::vector<std::vector<bool>>  closed(N, std::vector<bool>(N, false));
-		std::vector<std::vector<std::pair<int, int>>> parent(N, std::vector<std::pair<int, int>>(N, { -1,-1 }));
+        const float INF = 1e9f;
+        std::vector<std::vector<float>> g(N, std::vector<float>(N, INF));
+        std::vector<std::vector<bool>>  closed(N, std::vector<bool>(N, false));
+        std::vector<std::vector<std::pair<int, int>>> parent(N, std::vector<std::pair<int, int>>(N, { -1,-1 }));
 
-		struct QN { int x, z; float f; };
-		auto cmp = [](const QN& a, const QN& b) { return a.f > b.f; };
-		std::priority_queue<QN, std::vector<QN>, decltype(cmp)> open(cmp);
+        struct QN { int x, z; float f; };
+        auto cmp = [](const QN& a, const QN& b) { return a.f > b.f; };
+        std::priority_queue<QN, std::vector<QN>, decltype(cmp)> open(cmp);
 
-		g[startZ][startX] = 0.0f;
-		open.push({ startX, startZ, heuristic(startX,startZ,goalX,goalZ) });
+        g[startZ][startX] = 0.0f;
+        open.push({ startX, startZ, heuristic(startX,startZ,goalX,goalZ) });
 
-		bool found = false;
+        bool found = false;
 
-		// 8방향
-		const int dx[8] = { 1,-1, 0, 0,  1, 1,-1,-1 };
-		const int dz[8] = { 0, 0, 1,-1,  1,-1, 1,-1 };
+        // 8방향
+        const int dx[8] = { 1,-1, 0, 0,  1, 1,-1,-1 };
+        const int dz[8] = { 0, 0, 1,-1,  1,-1, 1,-1 };
 
-		while (!open.empty())
-		{
-			QN cur = open.top(); open.pop();
-			int x = cur.x, z = cur.z;
-			if (closed[z][x]) continue;
-			closed[z][x] = true;
+        while (!open.empty())
+        {
+            QN cur = open.top(); open.pop();
+            int x = cur.x, z = cur.z;
+            if (closed[z][x]) continue;
+            closed[z][x] = true;
 
-			if (x == goalX && z == goalZ) { found = true; break; }
+            if (x == goalX && z == goalZ) { found = true; break; }
 
-			for (int i = 0; i < 8; ++i)
-			{
-				int nx = x + dx[i];
-				int nz = z + dz[i];
-				if (!inBounds(nx, nz)) continue;
-				if (m_Grid.m_GridMap[nz][nx].isEmpty == false) continue; // 장애물
-				if (closed[nz][nx]) continue;
+            for (int i = 0; i < 8; ++i)
+            {
+                int nx = x + dx[i];
+                int nz = z + dz[i];
+                if (!inBounds(nx, nz)) continue;
+                if (m_Grid.m_GridMap[nz][nx].isEmpty == false) continue; // 장애물
+                if (closed[nz][nx]) continue;
 
-				// --- 대각선 이동 시 모서리 통과 방지 ---
-				bool diagonal = (dx[i] != 0 && dz[i] != 0);
-				if (diagonal)
-				{
-					int adj1z = z;
-					int adj1x = nx;
-					int adj2z = nz;
-					int adj2x = x;
-
-
-					//if (m_GridFlags[adj1z][adj1x] == 1 && m_GridFlags[adj2z][adj2x] == 1)
-					//    continue; // 양 옆 모두 막혔으면 대각선 금지
-
-					if (m_Grid.m_GridMap[adj1z][adj1x].isEmpty == false || m_Grid.m_GridMap[adj2z][adj2x].isEmpty == false)
-						continue; // 인접 장애물 한쪽이라도 있으면 금지
-				}
-
-				// --- 비용 계산 ---
-				float cost = diagonal ? 1.41421356f : 1.0f;
-				float ng = g[z][x] + cost;
-
-				if (ng < g[nz][nx])
-				{
-					g[nz][nx] = ng;
-					parent[nz][nx] = { x,z };
-					float h = 0.0f;
-
-					// Octile distance (대각선 포함 휴리스틱)
-					int dxAbs = abs(nx - goalX);
-					int dzAbs = abs(nz - goalZ);
-					h = (float)(dxAbs + dzAbs) + (1.41421356f - 2.0f) * (float)std::min(dxAbs, dzAbs);
-
-					float f = ng + h;
-					open.push({ nx,nz,f });
-				}
-			}
-		}
+                // --- 대각선 이동 시 모서리 통과 방지 ---
+                bool diagonal = (dx[i] != 0 && dz[i] != 0);
+                if (diagonal)
+                {
+                    int adj1z = z;
+                    int adj1x = nx;
+                    int adj2z = nz;
+                    int adj2x = x;
 
 
-		m_Path.clear();
-		m_PathIndex = 0;
+                    //if (m_GridFlags[adj1z][adj1x] == 1 && m_GridFlags[adj2z][adj2x] == 1)
+                    //    continue; // 양 옆 모두 막혔으면 대각선 금지
 
-		if (!found)
-		{
-			OutputDebugString(L"[A*] Path not found\n");
-			return;
-		}
+                    if (m_Grid.m_GridMap[adj1z][adj1x].isEmpty == false || m_Grid.m_GridMap[adj2z][adj2x].isEmpty == false)
+                        continue; // 인접 장애물 한쪽이라도 있으면 금지
+                }
 
-		// 경로 재구성 (goal -> start 역추적 후 뒤집기)
-		int cx = goalX, cz = goalZ;
-		std::vector<Vector3> rev;
-		while (!(cx == startX && cz == startZ))
-		{
-			rev.push_back(GridToWorld(cx, cz));
-			auto p = parent[cz][cx];
-			cx = p.first; cz = p.second;
-		}
-		std::reverse(rev.begin(), rev.end());
-		m_Path = std::move(rev);
+                // --- 비용 계산 ---
+                float cost = diagonal ? 1.41421356f : 1.0f;
+                float ng = g[z][x] + cost;
 
-		wchar_t buf[64];
-		swprintf_s(buf, L"[A*] Path length = %zu\n", m_Path.size());
-		OutputDebugString(buf);
+                if (ng < g[nz][nx])
+                {
+                    g[nz][nx] = ng;
+                    parent[nz][nx] = { x,z };
+                    float h = 0.0f;
+
+                    // Octile distance (대각선 포함 휴리스틱)
+                    int dxAbs = abs(nx - goalX);
+                    int dzAbs = abs(nz - goalZ);
+                    h = (float)(dxAbs + dzAbs) + (1.41421356f - 2.0f) * (float)std::min(dxAbs, dzAbs);
+
+                    float f = ng + h;
+                    open.push({ nx,nz,f });
+                }
+            }
+        }
+
+
+        m_Path.clear();
+        m_PathIndex = 0;
+
+        if (!found)
+        {
+            OutputDebugString(L"[A*] Path not found\n");
+            return;
+        }
+
+        // 경로 재구성 (goal -> start 역추적 후 뒤집기)
+        int cx = goalX, cz = goalZ;
+        std::vector<Vector3> rev;
+        while (!(cx == startX && cz == startZ))
+        {
+            rev.push_back(GridToWorld(cx, cz));
+            auto p = parent[cz][cx];
+            cx = p.first; cz = p.second;
+        }
+        std::reverse(rev.begin(), rev.end());
+        m_Path = std::move(rev);
+
+        wchar_t buf[64];
+        swprintf_s(buf, L"[A*] Path length = %zu\n", m_Path.size());
+        OutputDebugString(buf);
     }
 
     bool Init(HWND hWnd)
@@ -469,7 +470,7 @@ struct App
         // --------------------------------------------------------
         if (!CreateShaders()) return false;
         if (!CreateSkyShader()) return false;
-        
+
         CreateConstantBuffer();
         CreateGridVB();
         CreateBoxMesh();
@@ -825,15 +826,15 @@ struct App
     {
         CreateWICTextureFromFile(m_Device.Get(), m_Context.Get(), L"GreenBoxTexture.png", nullptr, m_GreenTexSRV.GetAddressOf());
 
-		D3D11_SAMPLER_DESC sd{};
-		sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-		sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
-		m_Device->CreateSamplerState(&sd, m_Sampler.GetAddressOf());
+        D3D11_SAMPLER_DESC sd{};
+        sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+        sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+        m_Device->CreateSamplerState(&sd, m_Sampler.GetAddressOf());
     }
 
     void UpdateAndDraw()
     {
-        if (IsKeyUp(VK_F1))
+        if (IsKeyUp(VK_F1) && isAnimEnd)
         {
             AStar ^= true;
         }
@@ -844,7 +845,7 @@ struct App
         m_Context->ClearDepthStencilView(m_DSV.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
         //“화면 크기(m_Width × m_Height) 영역 전체를 렌더링 대상으로 지정
-		// 매 프레임마다 뷰포트 설정을 할 필요는 없지만, 여기서는 명확히 하기 위해 매 프레임 설정
+        // 매 프레임마다 뷰포트 설정을 할 필요는 없지만, 여기서는 명확히 하기 위해 매 프레임 설정
         D3D11_VIEWPORT vp{ 0,0,(FLOAT)m_Width,(FLOAT)m_Height,0,1 };
         m_Context->RSSetViewports(1, &vp);
 
@@ -859,9 +860,9 @@ struct App
         m_Context->IASetVertexBuffers(0, 1, m_GridVB.GetAddressOf(), &stride, &offset);
         m_Context->VSSetShader(m_VSColor.Get(), nullptr, 0);
         m_Context->PSSetShader(m_PSColor.Get(), nullptr, 0);
-        
-		MapAndSetCB(Matrix::Identity, m_View * m_Proj); 
-        
+
+        MapAndSetCB(Matrix::Identity, m_View * m_Proj);
+
         m_Context->Draw(m_GridVertexCount, 0);
 
         // ---- Box ----
@@ -872,37 +873,37 @@ struct App
 
         m_Context->IASetVertexBuffers(0, 1, m_BoxVB.GetAddressOf(), &stride, &offset);
         m_Context->IASetIndexBuffer(m_BoxIB.Get(), DXGI_FORMAT_R16_UINT, 0);
-        
+
         m_Context->VSSetShader(m_VSTex.Get(), nullptr, 0);
         m_Context->PSSetShader(m_PSTex.Get(), nullptr, 0);
-        
+
         m_Context->PSSetShaderResources(0, 1, m_TexSRV.GetAddressOf());
         m_Context->PSSetSamplers(0, 1, m_Sampler.GetAddressOf());
-        
+
         MapAndSetCB(m_Box.World, m_View * m_Proj);
-        
+
         m_Context->DrawIndexed(m_BoxIndexCount, 0, 0);
 
         //GreenBox
-		m_Context->IASetInputLayout(m_InputLayoutTex.Get());
-		m_Context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        m_Context->IASetInputLayout(m_InputLayoutTex.Get());
+        m_Context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-		stride = sizeof(VertexPT); offset = 0;
+        stride = sizeof(VertexPT); offset = 0;
 
-		m_Context->IASetVertexBuffers(0, 1, m_BoxVB.GetAddressOf(), &stride, &offset);
-		m_Context->IASetIndexBuffer(m_BoxIB.Get(), DXGI_FORMAT_R16_UINT, 0);
+        m_Context->IASetVertexBuffers(0, 1, m_BoxVB.GetAddressOf(), &stride, &offset);
+        m_Context->IASetIndexBuffer(m_BoxIB.Get(), DXGI_FORMAT_R16_UINT, 0);
 
-		m_Context->VSSetShader(m_VSTex.Get(), nullptr, 0);
-		m_Context->PSSetShader(m_PSTex.Get(), nullptr, 0);
+        m_Context->VSSetShader(m_VSTex.Get(), nullptr, 0);
+        m_Context->PSSetShader(m_PSTex.Get(), nullptr, 0);
 
-		m_Context->PSSetShaderResources(0, 1, m_GreenTexSRV.GetAddressOf());
-		m_Context->PSSetSamplers(0, 1, m_Sampler.GetAddressOf());
+        m_Context->PSSetShaderResources(0, 1, m_GreenTexSRV.GetAddressOf());
+        m_Context->PSSetSamplers(0, 1, m_Sampler.GetAddressOf());
 
         for (auto& greenBox : m_GreenBoxs)
         {
-			MapAndSetCB(greenBox.World, m_View * m_Proj);
+            MapAndSetCB(greenBox.World, m_View * m_Proj);
 
-			m_Context->DrawIndexed(m_BoxIndexCount, 0, 0);
+            m_Context->DrawIndexed(m_BoxIndexCount, 0, 0);
         }
 
         m_SwapChain->Present(1, 0);
@@ -915,7 +916,7 @@ struct App
         if (!m_VSSky) OutputDebugString(L"[Skybox] VertexShader null\n");
         if (!m_InputLayoutSky) OutputDebugString(L"[Skybox] InputLayout null\n");
 
-       
+
         // ------------------------------------------
         // 1. 깊이/래스터라이저 상태 설정
         // ------------------------------------------
@@ -985,9 +986,9 @@ struct App
         auto* cb = reinterpret_cast<CBVS*>(ms.pData);
         cb->gWorld = world.Transpose();
         cb->gViewProj = viewProj.Transpose();
-        
+
         m_Context->Unmap(m_CBVS.Get(), 0);
-        
+
         m_Context->VSSetConstantBuffers(0, 1, m_CBVS.GetAddressOf());
     }
 
@@ -1029,7 +1030,7 @@ struct App
     {
         Vector3 ro, rd; ScreenRay(mx, my, ro, rd);
         Vector3 hit;
-        
+
         if (RayHitGround(ro, rd, hit) && isAnimEnd)
         {
             int x; int z;
@@ -1039,8 +1040,8 @@ struct App
 
             if (!m_Grid.IsEmpty(x, z))
                 return;
-            
-            if(m_Box.x!=-1 && m_Box.z!=-1)
+
+            if (m_Box.x != -1 && m_Box.z != -1)
                 m_Grid.RemoveObject(m_Box.x, m_Box.z);
 
             Vector3 c = SnapToCellCenter(hit);
@@ -1048,7 +1049,7 @@ struct App
             Matrix T = Matrix::CreateTranslation(c);
             m_Box.x = x;
             m_Box.z = z;
-            
+
             if (m_Box.Dest == Matrix::CreateTranslation(0, -1000, 0))
                 m_Box.World = S * T;
             m_Box.Start = m_Box.World;
@@ -1056,11 +1057,11 @@ struct App
             m_Box.Dest = S * T;
             Vector3 dest = Vector3(m_Box.Dest._41, m_Box.Dest._42, m_Box.Dest._43);
 
-            if(AStar)
+            if (AStar)
                 RunAStarTo(dest);
-                      
-			m_Grid.SetObject(x, z, &m_Box);
-			m_Grid.SetType(x, z, Type::Box);
+
+            m_Grid.SetObject(x, z, &m_Box);
+            m_Grid.SetType(x, z, Type::Box);
         }
     }
 
@@ -1068,18 +1069,18 @@ struct App
     {
         Vector3 ro, rd; ScreenRay(mx, my, ro, rd);
         Vector3 hit;
-        if (RayHitGround(ro, rd, hit))
+        if (RayHitGround(ro, rd, hit) && isAnimEnd)
         {
-			int x; int z;
-			float half = m_Grid.m_HalfCells * m_Grid.m_CellSize;
-			x = int((hit.x + half) / m_Grid.m_CellSize);
-			z = int((hit.z + half) / m_Grid.m_CellSize);
+            int x; int z;
+            float half = m_Grid.m_HalfCells * m_Grid.m_CellSize;
+            x = int((hit.x + half) / m_Grid.m_CellSize);
+            z = int((hit.z + half) / m_Grid.m_CellSize);
 
-			Vector3 c = SnapToCellCenter(hit);
-			Matrix S = Matrix::CreateScale(m_Grid.m_CellSize, 1.0f, m_Grid.m_CellSize);
-			Matrix T = Matrix::CreateTranslation(c);
-			Object obj;
-			obj.World = S * T;
+            Vector3 c = SnapToCellCenter(hit);
+            Matrix S = Matrix::CreateScale(m_Grid.m_CellSize, 1.0f, m_Grid.m_CellSize);
+            Matrix T = Matrix::CreateTranslation(c);
+            Object obj;
+            obj.World = S * T;
             obj.x = x;
             obj.z = z;
 
@@ -1186,13 +1187,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         break;
 
     case WM_MBUTTONDOWN:
-		if (g_App)
-		{
-			int mx = GET_X_LPARAM(lParam);
-			int my = GET_Y_LPARAM(lParam);
-			g_App->OnMClick(mx, my);
-		}
-		break;
+        if (g_App)
+        {
+            int mx = GET_X_LPARAM(lParam);
+            int my = GET_Y_LPARAM(lParam);
+            g_App->OnMClick(mx, my);
+        }
+        break;
 
     case WM_LBUTTONDOWN:
         if (g_App)
