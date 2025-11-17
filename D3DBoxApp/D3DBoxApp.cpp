@@ -4,6 +4,8 @@
 #include <Windows.h>
 #include <Windowsx.h>
 
+#include "GameTimer.h"
+#include <queue>
 #include <algorithm>
 #include <vector>
 #include <wrl.h>
@@ -13,6 +15,7 @@
 #include <SimpleMath.h>
 #include <WICTextureLoader.h>
 #include <DDSTextureLoader.h>
+#include "D3DBoxApp.h"
 
 
 #pragma comment(lib, "d3d11.lib")
@@ -47,27 +50,101 @@ struct CBVS
     Matrix gViewProj;
 };
 
+bool isAnimEnd = true;
+
+bool AStar = false;
+
+std::vector<Vector3>             m_Path;
+int                              m_PathIndex;
+
 struct Object
 {
     Matrix World;
-    int x = -1;
-    int y = -1;
+    Matrix Start;
+    Matrix Dest;
 
-    void SetPos(int x, int y)
+    Vector3 m_Pos;
+    int x = -1;
+    int z = -1;
+
+    void SetPos(int x, int z)
     {
         x = x;
-        y = y;
+        z = z;
     }
     std::pair<int, int> GetPos()
     {
-        return std::make_pair(x, y);
+        return std::make_pair(x, z);
     }
+
+    void Update(float deltaTime)
+    { }
+
+    void BoxUpdate(float deltaTime)
+	{
+        static float time = 0.0f;
+
+        m_Pos = World.Translation();
+        if(World != Dest && !AStar)
+		{
+            isAnimEnd = false;
+			time += deltaTime;
+
+			Vector3 p1 = Start.Translation(); // 혹은 ExtractTranslation(World1)
+			Vector3 p2 = Dest.Translation();
+			float dist = Vector3::Distance(p1, p2);
+
+            const float speed = 10.0f;
+
+			float t = std::min(time / (dist / speed), 1.0f); // 1초 동안 0~1로 보간
+			World = Matrix::Lerp(Start, Dest, t);
+
+            if (t >= 1.0f)
+			{
+				time = 0.0f; // 다음 이동을 위해 초기화
+                isAnimEnd = true;
+            }
+		}
+        else if (!m_Path.empty())
+        {
+            isAnimEnd = false;
+            time += deltaTime;
+
+            Vector3 p1 = Start.Translation();
+            Vector3 p2 = m_Path.front();
+            float dist = Vector3::Distance(p1, p2);
+
+            Dest = Matrix::CreateTranslation(p2);
+
+            const float speed = 10.0f;
+
+            float t = std::min(time / (dist / speed), 1.0f);
+            World = Matrix::Lerp(Start, Dest, t);
+
+			if (t >= 1.0f)
+			{
+            	time = 0.0f; // 다음 이동을 위해 초기화
+				isAnimEnd = true;
+                Start = World;
+                m_Path.erase(m_Path.begin());
+			}
+        }
+	}
+};
+
+
+
+enum Type
+{
+    Box,
+    GreenBox
 };
 
 struct Cell
 {
     Object* obj;
     bool isEmpty;
+    Type m_Type;
 };
 
 struct Grid
@@ -84,13 +161,26 @@ struct Grid
         m_GridMap = std::vector(halfCells * 2, std::vector<Cell>(halfCells * 2, Cell{ nullptr, true }));
     }
 
-    void SetObject(int x, int y, Object* obj);
-    void RemoveObject(int x, int y);
+    void SetObject(int x, int z, Object* obj);
+    void RemoveObject(int x, int z);
+    void SetType(int x, int z, Type type);
 
-    bool IsEmpty(int x, int y)
+    Object* GetObj(int x, int z)
     {
-        return m_GridMap[y][x].isEmpty;
+        return m_GridMap[z][x].obj;
     }
+
+    bool IsEmpty(int x, int z)
+    {
+        return m_GridMap[z][x].isEmpty;
+    }
+
+    Type GetType(int x, int z)
+    {
+        return m_GridMap[z][x].m_Type;
+    }
+
+	
 };
 
 struct App
@@ -164,6 +254,144 @@ struct App
     UINT                             m_Width = 1280;
     UINT                             m_Height = 720;
     Grid                             m_Grid;
+
+    GameTimer                        m_GameTimer;
+
+	bool WorldToGrid(const Vector3& pos, int& x, int& z)
+	{
+		float cellSize = m_Grid.m_CellSize;
+		float half = m_Grid.m_HalfCells * cellSize;
+
+		x = int((pos.x + half) / cellSize);
+		z = int((pos.z + half) / cellSize);
+
+		return (x >= 0 && x < half * 2 &&
+			z >= 0 && z < half * 2);
+	}
+
+    Vector3 GridToWorld(int cx, int cz)
+    {
+        float cellSize = m_Grid.m_CellSize;
+        float half = m_Grid.m_HalfCells * cellSize;
+
+        float x = -half + cx * cellSize + cellSize * 0.5f;
+        float z = -half + cz * cellSize + cellSize * 0.5f;
+
+        return Vector3(x, 0.0f, z);
+    }
+
+    void RunAStarTo(const Vector3& dest)
+    {
+        int startX, startZ, goalX, goalZ;
+        if (!WorldToGrid(m_Box.m_Pos, startX, startZ)) return;
+        if (!WorldToGrid(dest, goalX, goalZ)) return;
+
+        int N = m_Grid.m_HalfCells * 2 + 1;
+        auto inBounds = [&](int x, int z) {return x >= 0 && z >= 0 && x < N && z < N; };
+		auto heuristic = [&](int x1, int z1, int x2, int z2)
+			{
+				return float(abs(x1 - x2) + abs(z1 - z2)); // 맨해튼
+			};
+
+		const float INF = 1e9f;
+		std::vector<std::vector<float>> g(N, std::vector<float>(N, INF));
+		std::vector<std::vector<bool>>  closed(N, std::vector<bool>(N, false));
+		std::vector<std::vector<std::pair<int, int>>> parent(N, std::vector<std::pair<int, int>>(N, { -1,-1 }));
+
+		struct QN { int x, z; float f; };
+		auto cmp = [](const QN& a, const QN& b) { return a.f > b.f; };
+		std::priority_queue<QN, std::vector<QN>, decltype(cmp)> open(cmp);
+
+		g[startZ][startX] = 0.0f;
+		open.push({ startX, startZ, heuristic(startX,startZ,goalX,goalZ) });
+
+		bool found = false;
+
+		// 8방향
+		const int dx[8] = { 1,-1, 0, 0,  1, 1,-1,-1 };
+		const int dz[8] = { 0, 0, 1,-1,  1,-1, 1,-1 };
+
+		while (!open.empty())
+		{
+			QN cur = open.top(); open.pop();
+			int x = cur.x, z = cur.z;
+			if (closed[z][x]) continue;
+			closed[z][x] = true;
+
+			if (x == goalX && z == goalZ) { found = true; break; }
+
+			for (int i = 0; i < 8; ++i)
+			{
+				int nx = x + dx[i];
+				int nz = z + dz[i];
+				if (!inBounds(nx, nz)) continue;
+				if (m_Grid.m_GridMap[nz][nx].isEmpty == false) continue; // 장애물
+				if (closed[nz][nx]) continue;
+
+				// --- 대각선 이동 시 모서리 통과 방지 ---
+				bool diagonal = (dx[i] != 0 && dz[i] != 0);
+				if (diagonal)
+				{
+					int adj1z = z;
+					int adj1x = nx;
+					int adj2z = nz;
+					int adj2x = x;
+
+
+					//if (m_GridFlags[adj1z][adj1x] == 1 && m_GridFlags[adj2z][adj2x] == 1)
+					//    continue; // 양 옆 모두 막혔으면 대각선 금지
+
+					if (m_Grid.m_GridMap[adj1z][adj1x].isEmpty == false || m_Grid.m_GridMap[adj2z][adj2x].isEmpty == false)
+						continue; // 인접 장애물 한쪽이라도 있으면 금지
+				}
+
+				// --- 비용 계산 ---
+				float cost = diagonal ? 1.41421356f : 1.0f;
+				float ng = g[z][x] + cost;
+
+				if (ng < g[nz][nx])
+				{
+					g[nz][nx] = ng;
+					parent[nz][nx] = { x,z };
+					float h = 0.0f;
+
+					// Octile distance (대각선 포함 휴리스틱)
+					int dxAbs = abs(nx - goalX);
+					int dzAbs = abs(nz - goalZ);
+					h = (float)(dxAbs + dzAbs) + (1.41421356f - 2.0f) * (float)std::min(dxAbs, dzAbs);
+
+					float f = ng + h;
+					open.push({ nx,nz,f });
+				}
+			}
+		}
+
+
+		m_Path.clear();
+		m_PathIndex = 0;
+
+		if (!found)
+		{
+			OutputDebugString(L"[A*] Path not found\n");
+			return;
+		}
+
+		// 경로 재구성 (goal -> start 역추적 후 뒤집기)
+		int cx = goalX, cz = goalZ;
+		std::vector<Vector3> rev;
+		while (!(cx == startX && cz == startZ))
+		{
+			rev.push_back(GridToWorld(cx, cz));
+			auto p = parent[cz][cx];
+			cx = p.first; cz = p.second;
+		}
+		std::reverse(rev.begin(), rev.end());
+		m_Path = std::move(rev);
+
+		wchar_t buf[64];
+		swprintf_s(buf, L"[A*] Path length = %zu\n", m_Path.size());
+		OutputDebugString(buf);
+    }
 
     bool Init(HWND hWnd)
     {
@@ -254,6 +482,8 @@ struct App
         m_Grid.Init(20, 1.0f);
 
         m_Box.World = Matrix::CreateTranslation(0, -1000, 0);
+        m_Box.Start = Matrix::CreateTranslation(0, -1000, 0);
+        m_Box.Dest = Matrix::CreateTranslation(0, -1000, 0);
 
         CreateSkyRenderStates();
 
@@ -268,6 +498,9 @@ struct App
         UpdateView();
 
         OutputDebugString(L"[D3D] Init complete.\n");
+
+        m_GameTimer.Reset();
+
         return true;
     }
 
@@ -600,6 +833,11 @@ struct App
 
     void UpdateAndDraw()
     {
+        if (IsKeyUp(VK_F1))
+        {
+            AStar ^= true;
+        }
+
         float clear[4] = { 0.08f, 0.09f, 0.11f, 1.0f };
         m_Context->OMSetRenderTargets(1, m_RTV.GetAddressOf(), m_DSV.Get());
         m_Context->ClearRenderTargetView(m_RTV.Get(), clear);
@@ -792,28 +1030,37 @@ struct App
         Vector3 ro, rd; ScreenRay(mx, my, ro, rd);
         Vector3 hit;
         
-        if (RayHitGround(ro, rd, hit))
+        if (RayHitGround(ro, rd, hit) && isAnimEnd)
         {
-            int x; int y;
+            int x; int z;
             float half = m_Grid.m_HalfCells * m_Grid.m_CellSize;
             x = int((hit.x + half) / m_Grid.m_CellSize);
-            y = int((hit.z + half) / m_Grid.m_CellSize);
+            z = int((hit.z + half) / m_Grid.m_CellSize);
 
-            if (!m_Grid.IsEmpty(x, y))
+            if (!m_Grid.IsEmpty(x, z))
                 return;
             
-            if(m_Box.x!=-1 && m_Box.y!=-1)
-                m_Grid.RemoveObject(m_Box.x, m_Box.y);
+            if(m_Box.x!=-1 && m_Box.z!=-1)
+                m_Grid.RemoveObject(m_Box.x, m_Box.z);
 
             Vector3 c = SnapToCellCenter(hit);
             Matrix S = Matrix::CreateScale(m_Grid.m_CellSize, 1.0f, m_Grid.m_CellSize);
             Matrix T = Matrix::CreateTranslation(c);
             m_Box.x = x;
-            m_Box.y = y;
+            m_Box.z = z;
             
-            m_Grid.SetObject(x, y, &m_Box);
+            if (m_Box.Dest == Matrix::CreateTranslation(0, -1000, 0))
+                m_Box.World = S * T;
+            m_Box.Start = m_Box.World;
 
-            m_Box.World = S * T;
+            m_Box.Dest = S * T;
+            Vector3 dest = Vector3(m_Box.Dest._41, m_Box.Dest._42, m_Box.Dest._43);
+
+            if(AStar)
+                RunAStarTo(dest);
+                      
+			m_Grid.SetObject(x, z, &m_Box);
+			m_Grid.SetType(x, z, Type::Box);
         }
     }
 
@@ -823,24 +1070,56 @@ struct App
         Vector3 hit;
         if (RayHitGround(ro, rd, hit))
         {
-			int x; int y;
+			int x; int z;
 			float half = m_Grid.m_HalfCells * m_Grid.m_CellSize;
 			x = int((hit.x + half) / m_Grid.m_CellSize);
-			y = int((hit.z + half) / m_Grid.m_CellSize);
-
-			if (!m_Grid.IsEmpty(x, y))
-				return;
+			z = int((hit.z + half) / m_Grid.m_CellSize);
 
 			Vector3 c = SnapToCellCenter(hit);
 			Matrix S = Matrix::CreateScale(m_Grid.m_CellSize, 1.0f, m_Grid.m_CellSize);
-            Matrix T = Matrix::CreateTranslation(c);
-            Object obj;
-            obj.World = S * T;
+			Matrix T = Matrix::CreateTranslation(c);
+			Object obj;
+			obj.World = S * T;
+            obj.x = x;
+            obj.z = z;
+
+            if (!m_Grid.IsEmpty(x, z))
+            {
+                switch (m_Grid.GetType(x, z))
+                {
+                case Box:
+                    return;
+                case GreenBox:
+                    m_Grid.RemoveObject(x, z);
+                    m_GreenBoxs.erase(std::find_if(m_GreenBoxs.begin(), m_GreenBoxs.end(), [obj](Object a) {return obj.x == a.x && obj.z == a.z; }));
+                    return;
+                }
+            }
 
             m_GreenBoxs.push_back(obj);
 
-            m_Grid.SetObject(x, y, &m_GreenBoxs.back());
+            m_Grid.SetObject(x, z, &m_GreenBoxs.back());
+            m_Grid.SetType(x, z, Type::GreenBox);
         }
+    }
+
+    float DeltaTime()
+    {
+        return m_GameTimer.DeltaTime();
+    }
+
+    void Update(float deltaTime)
+    {
+        m_Box.BoxUpdate(deltaTime);
+        for (auto& greenBox : m_GreenBoxs)
+        {
+            greenBox.Update(deltaTime);
+        }
+    }
+
+    void UpdateTime()
+    {
+        m_GameTimer.Tick();
     }
 
     void UpdateView()
@@ -982,6 +1261,7 @@ int WINAPI wWinMain(
     _In_ int nCmdShow
 )
 {
+
     WNDCLASSEX wc{ sizeof(WNDCLASSEX) };
     wc.hInstance = hInstance;
     wc.lpszClassName = L"DX11_SkyboxGridBox";
@@ -1014,20 +1294,27 @@ int WINAPI wWinMain(
         }
         else
         {
+            app.UpdateTime();
+            app.Update(app.DeltaTime());
             app.UpdateAndDraw();
         }
     }
     return 0;
 }
 
-void Grid::SetObject(int x, int y, Object* obj)
+void Grid::SetObject(int x, int z, Object* obj)
 {
-    m_GridMap[y][x].obj = obj;
-    m_GridMap[y][x].isEmpty = false;
+    m_GridMap[z][x].obj = obj;
+    m_GridMap[z][x].isEmpty = false;
 }
 
-void Grid::RemoveObject(int x, int y)
+void Grid::RemoveObject(int x, int z)
 {
-    m_GridMap[y][x].obj = nullptr;
-    m_GridMap[y][x].isEmpty = true;
+    m_GridMap[z][x].obj = nullptr;
+    m_GridMap[z][x].isEmpty = true;
+}
+
+void Grid::SetType(int x, int z, Type type)
+{
+    m_GridMap[z][x].m_Type = type;
 }
